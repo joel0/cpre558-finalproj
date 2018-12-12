@@ -2,23 +2,34 @@ package edu.iastate.cpre588;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
+
+// Packet definition:
+//      0       1       2       3       <
+//  0   |---------Source IPv4----------|
+//  4   |-------Destination IPv4-------|
+//  8   |--Period(ms)--||Payload length|
+//  12  |Payload...>
 
 /**
  * Represents a packet and its header data.  Allows for serialization and deserialization for network transmit.
  */
 public class PacketModel {
     /** The source IP address of this packet. */
-    private InetAddress sourceIp;
+    private Inet4Address sourceIp;
     /** The destination IP of this packet (not necessarily the next hop). */
-    private InetAddress destinationIp;
+    private Inet4Address destinationIp;
+    /** The period between instances of this packet. In milliseconds. */
+    private short period;
     /** This packet's byte array payload. */
     private byte[] payload;
 
-    public PacketModel(InetAddress sourceIp, InetAddress destinationIp, byte[] payload) {
-        assert sourceIp.getClass() == destinationIp.getClass();
+    public PacketModel(Inet4Address sourceIp, Inet4Address destinationIp, short period, byte[] payload) {
         this.sourceIp = sourceIp;
         this.destinationIp = destinationIp;
+        this.period = period;
         this.payload = payload;
     }
 
@@ -28,8 +39,17 @@ public class PacketModel {
      * @return the byte array representing this packet's data
      */
     public byte[] toBytes() {
-        // TODO
-        return null;
+        ByteBuffer outBuf = ByteBuffer.allocate(payload.length + 12);
+
+        outBuf.put(sourceIp.getAddress());
+        outBuf.put(destinationIp.getAddress());
+        outBuf.putShort(period);
+        assert payload.length <= Short.toUnsignedInt((short) -1);
+        outBuf.putShort((short) payload.length);
+        outBuf.put(payload);
+        assert outBuf.position() == 12 + payload.length;
+
+        return outBuf.array();
     }
 
     /**
@@ -40,23 +60,29 @@ public class PacketModel {
      */
     public static PacketModel fromStream(InputStream stream) throws IOException {
         byte[] buffer;
-        boolean ipv6;
-        InetAddress sourceIp;
-        InetAddress destinationIp;
+        Inet4Address sourceIp;
+        Inet4Address destinationIp;
 
-        ipv6 = stream.read() == 1;
+        // Read source IP
+        buffer = stream.readNBytes(4);
+        sourceIp = (Inet4Address) InetAddress.getByAddress(buffer);
 
-        buffer = stream.readNBytes(ipv6 ? 16 : 4);
-        sourceIp = InetAddress.getByAddress(buffer);
+        // Read destination IP
+        buffer = stream.readNBytes(4);
+        destinationIp = (Inet4Address) InetAddress.getByAddress(buffer);
 
-        buffer = stream.readNBytes(ipv6 ? 16 : 4);
-        destinationIp = InetAddress.getByAddress(buffer);
+        // Read period
+        buffer = stream.readNBytes(2);
+        short period = ByteBuffer.wrap(buffer).getShort();
 
-        int payloadSize = stream.read();
+        // Read payload length
+        buffer = stream.readNBytes(2);
+        int payloadSize = ByteBuffer.wrap(buffer).getShort();
 
+        // Read payload
         buffer = stream.readNBytes(payloadSize);
 
-        return new PacketModel(sourceIp, destinationIp, buffer);
+        return new PacketModel(sourceIp, destinationIp, period, buffer);
     }
 
     @Override
