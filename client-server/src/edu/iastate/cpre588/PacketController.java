@@ -1,10 +1,18 @@
 package edu.iastate.cpre588;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 
 public class PacketController {
+
+    public static void sendPacket(InetAddress nextHop, PacketModel packet) throws IOException {
+        Socket s = new Socket(nextHop, Main.LISTEN_PORT);
+        byte[] packetBytes = packet.toBytes();
+        s.getOutputStream().write(packetBytes);
+        s.close();
+    }
 
     public static PacketModel getPacket(ServerSocket server) throws IOException {
         PacketModel packet;
