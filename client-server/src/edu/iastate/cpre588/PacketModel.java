@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 // Packet definition:
 //      0       1       2       3       <
@@ -40,6 +41,7 @@ public class PacketModel {
      */
     public byte[] toBytes() {
         ByteBuffer outBuf = ByteBuffer.allocate(payload.length + 12);
+        outBuf.order(ByteOrder.LITTLE_ENDIAN);
 
         outBuf.put(sourceIp.getAddress());
         outBuf.put(destinationIp.getAddress());
@@ -73,11 +75,11 @@ public class PacketModel {
 
         // Read period
         buffer = stream.readNBytes(2);
-        short period = ByteBuffer.wrap(buffer).getShort();
+        short period = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN).getShort();
 
         // Read payload length
         buffer = stream.readNBytes(2);
-        int payloadSize = ByteBuffer.wrap(buffer).getShort();
+        int payloadSize = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN).getShort();
 
         // Read payload
         buffer = stream.readNBytes(payloadSize);
