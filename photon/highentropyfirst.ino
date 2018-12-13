@@ -3,6 +3,9 @@
 
 const int CLIENT_COUNT = 2;
 
+unsigned int totalCompTime; //TODO - Needs to be initialized to 0 in setup()
+unsigned int scheduleRound; //TODO - Needs to be initialized to 0 in setup()
+
 typedef struct {
     long sourceIp;
     long destIp;
@@ -10,9 +13,18 @@ typedef struct {
     uint16_t size;
 } header;
 
+struct schedule{
+    int hperiod;
+    unsigned long startTime;
+    unsigned int taskOrder[];
+    unsigned long deadline[];
+};
+
 bool readFully(TCPClient c, uint8_t* buf, size_t len);
 header bytesToHeader(uint8_t* b);
 bool headersContainSource(header* headers, size_t headersLen, long source);
+
+
 
 void setup() {
     double entropytest[5] = {2.0, 1.0, 3.0, 0.5, 5.0};
@@ -38,6 +50,32 @@ void loop() {
 
 //Functions
 
+void createSchedule(){
+    //get all tasks' periods
+    //compute hperiod
+}
+
+//Returns true if schedulable, false if not.
+bool checkSchedule(unsigned long startTime, unsigned long period, unsigned int compTime){
+    unsigned long deadline = startTime + period;
+    totalCompTime += compTime;
+    
+    if(totalCompTime > deadline){
+        return false;
+    }
+    else{
+        return true;
+    }
+}
+
+
+//gets the wall clock (time since device has started) and returns the computed relative deadline
+unsigned long getWallClockDeadline(unsigned int scheduleLength, int deadline, unsigned long startTime){
+    
+    // i * ScheduleTime + deadline
+    unsigned long wallClock = (scheduleRound * scheduleLength) + deadline + startTime;
+    return wallClock;
+}
 
 //Takes LOGbase2 of hperiod (lcm of all periods)  and multiplies it by the quotient of comptime/period
 double calculateTaskEntropy(int period, int hperiod, int compTime){
