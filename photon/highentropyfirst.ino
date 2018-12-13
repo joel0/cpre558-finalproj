@@ -1,11 +1,23 @@
 #include "math.h"
+#include <inttypes.h>
 
+const int CLIENT_COUNT = 2;
 
+typedef struct {
+    long sourceIp;
+    long destIp;
+    uint16_t period;
+    uint16_t size;
+} header;
+
+bool readFully(TCPClient c, uint8_t* buf, size_t len);
+header bytesToHeader(uint8_t* b);
+bool headersContainSource(header* headers, size_t headersLen, long source);
 
 void setup() {
     double entropytest[5] = {2.0, 1.0, 3.0, 0.5, 5.0};
     int taskNumbers[5] = {0,1,2,3,4};
-    
+
     //sortHighestEntropy(entropytest, taskNumbers, 5, 5);
     double taskEntro = calculateTaskEntropy(5, 10, 3);
     double normalized = calculateNormalizedEntropy(taskEntro, 3);
@@ -106,4 +118,62 @@ void swapInt(int *a, int *b){
     int temp = *a;
     *a = *b;
     *b = temp;
+}
+
+
+
+//Read all headers for setup phase
+// server: A listening TCPServer
+header* readAllHeaders(TCPServer server) {
+    header* headers = (header*) malloc(sizeof(header) * CLIENT_COUNT);
+    int clients = 0;
+    
+    while (clients < CLIENT_COUNT) {
+        TCPClient c = server.available();
+        uint8_t headerBytes[12];
+        if (readFully(c, headerBytes, sizeof(header))) {
+            header thisHeader = bytesToHeader(headerBytes);
+            if (headersContainSource(headers, clients, thisHeader.sourceIp)) {
+                Serial.printf("Encountered header from alread seen client.");
+            } else {
+                headers[clients] = thisHeader;
+                clients++;
+            }
+        }
+        c.stop();
+    }
+    return headers;
+}
+
+// Reads a desired amount from a stream and will block until enough data is available.
+bool readFully(TCPClient c, uint8_t* buf, size_t len) {
+    size_t read = 0;
+    while (read < len) {
+        int temp = c.read(&buf[read], len - read);
+        if (temp < 0) {
+            return false;
+        }
+        read += temp;
+    }
+    return true;
+}
+
+// Converts a byte array of 12 bytes to a header struct
+header bytesToHeader(uint8_t* b) {
+    header ret;
+    ret.sourceIp = *((long*) &b[0]);
+    ret.destIp = *((long*) &b[4]);
+    ret.period = *((uint16_t*) &b[8]);
+    ret.size = *((uint16_t*) &b[10]);
+    return ret;
+}
+
+// Searches an array of header structs for one that contains the source IP.
+bool headersContainSource(header* headers, size_t headersLen, long source) {
+    for (int i = 0; i < headersLen; i++) {
+        if (headers[i].sourceIp == source) {
+            return true;
+        }
+    }
+    return false;
 }
