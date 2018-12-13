@@ -15,7 +15,7 @@ public class Client {
                     payload
             );
 
-            PacketController.sendPacket(Inet4Address.getLoopbackAddress(), packet);
+            PacketController.sendPacket(Inet4Address.getByName("192.168.137.88"), packet);
         } catch (IOException e) {
             e.printStackTrace();
         }

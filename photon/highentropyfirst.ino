@@ -20,6 +20,7 @@ struct schedule{
     unsigned long deadline[];
 };
 
+void processPacketFromSource(TCPServer server, long source, long wallClockDeadline);
 bool readFully(TCPClient c, uint8_t* buf, size_t len);
 header bytesToHeader(uint8_t* b);
 bool headersContainSource(header* headers, size_t headersLen, long source);
@@ -228,4 +229,14 @@ bool headersContainSource(header* headers, size_t headersLen, long source) {
         }
     }
     return false;
+}
+
+// Takes a packet from a specific source and sends it to the destination.
+// Closes any connections from clients that are not source.
+// Times out and returns if wallClockDeadline is exceeded.
+//  server: the TCP listener
+//  source: the source IP to accept from
+//  wallClockDeadline: the time according to milis() to return if the source does not connect.
+void processPacketFromSource(TCPServer server, long source, long wallClockDeadline) {
+
 }
