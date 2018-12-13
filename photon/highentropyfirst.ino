@@ -1,7 +1,7 @@
 #include "math.h"
 #include <inttypes.h>
 
-const int CLIENT_COUNT = 2;
+const int CLIENT_COUNT = 1;
 
 unsigned int totalCompTime; //TODO - Needs to be initialized to 0 in setup()
 unsigned int scheduleRound; //TODO - Needs to be initialized to 0 in setup()
@@ -23,21 +23,30 @@ struct schedule{
 bool readFully(TCPClient c, uint8_t* buf, size_t len);
 header bytesToHeader(uint8_t* b);
 bool headersContainSource(header* headers, size_t headersLen, long source);
+header* readAllHeaders(TCPServer server);
 
-
+TCPServer server = TCPServer(1337);
 
 void setup() {
-    double entropytest[5] = {2.0, 1.0, 3.0, 0.5, 5.0};
-    int taskNumbers[5] = {0,1,2,3,4};
-
+    //double entropytest[5] = {2.0, 1.0, 3.0, 0.5, 5.0};
+    //int taskNumbers[5] = {0,1,2,3,4};
+    
     //sortHighestEntropy(entropytest, taskNumbers, 5, 5);
-    double taskEntro = calculateTaskEntropy(5, 10, 3);
-    double normalized = calculateNormalizedEntropy(taskEntro, 3);
+    //double taskEntro = calculateTaskEntropy(5, 10, 3);
+    //double normalized = calculateNormalizedEntropy(taskEntro, 3);
+    
+    
+    
     Serial.begin(9600);
     
     while(!Serial.isConnected()) Particle.process();
    
-    Serial.printf("CalculateTaskEntropy: %f \n\r Normalized: %f",taskEntro, normalized);
+   
+    server.begin();
+    header* packetHeaders = readAllHeaders(server);
+    
+    Serial.printf("Returned\n\r");
+    Serial.printf("Period: %d", packetHeaders[0].period);
     //Serial.printf("[0] = %f [1] = %f [2] = %f [3] = %f [4] = %f", entropytest[0], entropytest[1], entropytest[2], entropytest[3], entropytest[4]);
     //Serial.printf("\n\r[0] = %d [1] = %d [2] = %d [3] = %d [4] = %d", taskNumbers[0], taskNumbers[1], taskNumbers[2], taskNumbers[3], taskNumbers[4]);
     //Serial.println();
@@ -50,9 +59,14 @@ void loop() {
 
 //Functions
 
-void createSchedule(){
+void createSchedule(header* allPacketHeaders){
     //get all tasks' periods
     //compute hperiod
+    int size = CLIENT_COUNT;
+    uint16_t* periods = malloc(sizeof(uint16_t) * CLIENT_COUNT);
+    for(int i = 0; i < size; i++){
+            periods[i] = allPacketHeaders[i].period;
+    }
 }
 
 //Returns true if schedulable, false if not.
