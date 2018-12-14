@@ -1,6 +1,11 @@
 #include "math.h"
 #include <inttypes.h>
 
+#define htonl(A) ((((uint32_t)(A) & 0xff000000) >> 24) | \
+(((uint32_t)(A) & 0x00ff0000) >> 8) | \
+(((uint32_t)(A) & 0x0000ff00) << 8) | \
+(((uint32_t)(A) & 0x000000ff) << 24))
+
 const int CLIENT_COUNT = 1;
 
 unsigned int totalCompTime; //TODO - Needs to be initialized to 0 in setup()
@@ -25,14 +30,15 @@ typedef struct {
 
 //Server Creation
 TCPServer server = TCPServer(1337);
+TCPClient client;
 
 
 //*******************************************PROTOTYPES***************************************
-bool processPacketFromSource(TCPServer server, long source, long wallClockDeadline);
-bool readFully(TCPClient c, uint8_t* buf, size_t len);
+bool processPacketFromSource(long source, long wallClockDeadline);
+bool readFully(uint8_t* buf, size_t len);
 header bytesToHeader(uint8_t* b);
 bool headersContainSource(header* headers, size_t headersLen, long source);
-header* readAllHeaders(TCPServer server);
+header* readAllHeaders();
 void sendPacket(header h, uint8_t* payload);
 void scheduleInit(schedule* scheduleStruct);
 double calculateNormalizedEntropy(double taskEntropy, unsigned short compTime);
@@ -55,18 +61,40 @@ void setup() {
     
     while(!Serial.isConnected()) Particle.process();
    
+    Serial.printf("Serial connected!\n\r");
     //create schedule & init values;
+    scheduleRound = 1;
+    totalCompTime = 0;
     schedule hSchedule;
     scheduleInit(&hSchedule);
-    
+    Serial.printf("Schedule initialized...\n\r");
     server.begin();
-    header* packetHeaders = readAllHeaders(server);
-    
+    Serial.printf("Begin. Server started...\n\r");
+    header* packetHeaders = readAllHeaders();
     Serial.printf("Returned\n\r");
-    Serial.printf("Period: %d", packetHeaders[0].period);
+    Serial.printf("Period: %d\n\r", packetHeaders[0].period);
     //Serial.printf("[0] = %f [1] = %f [2] = %f [3] = %f [4] = %f", entropytest[0], entropytest[1], entropytest[2], entropytest[3], entropytest[4]);
     //Serial.printf("\n\r[0] = %d [1] = %d [2] = %d [3] = %d [4] = %d", taskNumbers[0], taskNumbers[1], taskNumbers[2], taskNumbers[3], taskNumbers[4]);
     //Serial.println();
+    long src = packetHeaders[0].sourceIp;
+    long startTime = millis();
+    unsigned long deadln = getWallClockDeadline(10000, packetHeaders[0].period, startTime);
+    //server.begin();
+    Serial.printf("Begin. Server started...\n\r");
+    Serial.printf("Preparing to processPacketFromSource\n\r");
+    bool sent = processPacketFromSource(src, deadln);
+    //packetHeaders = readAllHeaders();
+    
+    //bool sent = false;
+    Serial.printf("\n\rDeadlineWallClk: %ld\n\r", deadln);
+    if(sent){
+        Serial.printf("Sent.");    
+    }
+    else{
+        Serial.printf("Sent == false.");
+    }
+    
+    
 }
 
 void loop() {
@@ -256,32 +284,39 @@ void swapShort(unsigned short *a, unsigned short *b){
 
 //Read all headers for setup phase
 // server: A listening TCPServer
-header* readAllHeaders(TCPServer server) {
+header* readAllHeaders() {
     header* headers = (header*) malloc(sizeof(header) * CLIENT_COUNT);
     int clients = 0;
     
     while (clients < CLIENT_COUNT) {
-        TCPClient c = server.available();
+        Serial.printf("(1) Waiting for client...\n\r");
+        //TCPClient c;
+        do{
+            client = server.available();
+            //delay(100);
+        }while(!client.connected());
+        Serial.printf("Connected...\n\r");
         uint8_t headerBytes[12];
-        if (readFully(c, headerBytes, sizeof(header))) {
+        if (readFully(headerBytes, sizeof(header))) {
             header thisHeader = bytesToHeader(headerBytes);
             if (headersContainSource(headers, clients, thisHeader.sourceIp)) {
-                Serial.printf("Encountered header from alread seen client.\n");
+                Serial.printf("Encountered header from alread seen client.\n\r");
             } else {
+                Serial.printf("Header read.\n\r");
                 headers[clients] = thisHeader;
                 clients++;
             }
         }
-        c.stop();
+        client.stop();
     }
     return headers;
 }
 
 // Reads a desired amount from a stream and will block until enough data is available.
-bool readFully(TCPClient c, uint8_t* buf, size_t len) {
+bool readFully(uint8_t* buf, size_t len) {
     size_t read = 0;
     while (read < len) {
-        int temp = c.read(&buf[read], len - read);
+        int temp = client.read(&buf[read], len - read);
         if (temp < 0) {
             return false;
         }
@@ -293,8 +328,8 @@ bool readFully(TCPClient c, uint8_t* buf, size_t len) {
 // Converts a byte array of 12 bytes to a header struct
 header bytesToHeader(uint8_t* b) {
     header ret;
-    ret.sourceIp = *((long*) &b[0]);
-    ret.destIp = *((long*) &b[4]);
+    ret.sourceIp = htonl(*((long*) &b[0]));
+    ret.destIp = htonl(*((long*) &b[4]));
     ret.period = *((uint16_t*) &b[8]);
     ret.size = *((uint16_t*) &b[10]);
     return ret;
@@ -327,50 +362,66 @@ bool headersContainSource(header* headers, size_t headersLen, long source) {
 //  source: the source IP to accept from
 //  wallClockDeadline: the time according to millis() to return if the source does not connect.
 // Returns: true if packet was received and sent.  False if timeout.
-bool processPacketFromSource(TCPServer server, long source, long wallClockDeadline) {
+bool processPacketFromSource(long source, long wallClockDeadline) {
     while (millis() <= wallClockDeadline) {
-        TCPClient c = server.available();
+        //TCPClient c;
+        Serial.printf("(2) Attempting to connect...\n\r");
+        do{
+            client = server.available();   
+            //delay(100);
+        }while(!client.connected());
+        Serial.printf("Re-connected...\n\r");
         if (millis() > wallClockDeadline) {
             // Timeout
+            Serial.printf("Timeout.\n\r");
             return false;
         }
-        if (!(c.remoteIP() == IPAddress(source))) {
-            Serial.printf("Got connection from unexpected source: %s.  Closing connection.\n", IPAddress(source));
-            c.stop();
+        if (!(client.remoteIP() == source)) {
+            Serial.printf("Got connection from unexpected source:\n\r");
+            Serial.printf("Client Address:\n\r");
+            Serial.println(client.remoteIP());
+            Serial.printf("Server Address: \n\r");
+            Serial.println(IPAddress(source));
+            Serial.printf("Closing Connection.\n\r");
+            client.stop();
         } else {
-            Serial.printf("Processing packet\n");
-            readPacket(c);
-            c.stop();
+            Serial.printf("Processing packet\n\r");
+            readPacket();
+            client.stop();
             return true;
         }
     }
     return false;
 }
 
-void readPacket(TCPClient c) {
+void readPacket() {
     uint8_t headerBytes[12];
-    if (readFully(c, headerBytes, sizeof(header))) {
+    if (readFully(headerBytes, sizeof(header))) {
         header h = bytesToHeader(headerBytes);
         uint8_t payload[h.size];
-        if (!readFully(c, payload, h.size)) {
-            Serial.printf("Problem reading full packet payload from client\n");
+        if (!readFully(payload, h.size)) {
+            Serial.printf("Problem reading full packet payload from client\n\r");
             return;
         } else {
             sendPacket(h, payload);
         }
     }
+    Serial.printf("Else.\n\r");
 }
 
 void sendPacket(header h, uint8_t* payload) {
     IPAddress destinationIP = IPAddress(h.destIp);
     TCPClient c;
     if (!c.connect(destinationIP, 1337)) {
-        Serial.printf("Problem connecting to server.\n");
+        Serial.printf("Problem connecting to server.\n\r");
     } else {
+        Serial.printf("Connected outgoing.\n\r");
         uint8_t* headerBytes = headerToBytes(h);
         c.write(headerBytes, 12);
+        Serial.printf("Wrote header.\n\r");
         free(headerBytes);
         c.write(payload, h.size);
+        Serial.printf("Wrote payload.\n\r");
         c.stop();
     }
 }
