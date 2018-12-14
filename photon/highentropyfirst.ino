@@ -13,20 +13,31 @@ typedef struct {
     uint16_t size;
 } header;
 
-struct schedule{
-    int hperiod;
+typedef struct {
+    unsigned int hPeriod;
     unsigned long startTime;
-    unsigned int taskOrder[];
-    unsigned long deadline[];
-};
+    unsigned int taskOrder[CLIENT_COUNT];
+    double taskEntropy[CLIENT_COUNT];
+    double normalizedTaskEntropy[CLIENT_COUNT];
+    unsigned long deadline[CLIENT_COUNT];
+    unsigned int finalOrder[CLIENT_COUNT];
+} schedule;
 
+//Server Creation
+TCPServer server = TCPServer(1337);
+
+//*******************************************PROTOTYPES***************************************
 void processPacketFromSource(TCPServer server, long source, long wallClockDeadline);
 bool readFully(TCPClient c, uint8_t* buf, size_t len);
 header bytesToHeader(uint8_t* b);
 bool headersContainSource(header* headers, size_t headersLen, long source);
 header* readAllHeaders(TCPServer server);
+void scheduleInit(schedule* scheduleStruct);
+double calculateNormalizedEntropy(double taskEntropy, unsigned short compTime);
+double calculateTaskEntropy(unsigned short period, unsigned short hperiod, unsigned short compTime);
+unsigned long checkSchedule(unsigned long startTime, unsigned short period, unsigned short compTime);
+//********************************************************************************************
 
-TCPServer server = TCPServer(1337);
 
 void setup() {
     //double entropytest[5] = {2.0, 1.0, 3.0, 0.5, 5.0};
@@ -42,7 +53,10 @@ void setup() {
     
     while(!Serial.isConnected()) Particle.process();
    
-   
+    //create schedule & init values;
+    schedule hSchedule;
+    scheduleInit(&hSchedule);
+    
     server.begin();
     header* packetHeaders = readAllHeaders(server);
     
@@ -60,26 +74,55 @@ void loop() {
 
 //Functions
 
-void createSchedule(header* allPacketHeaders){
+//Fills in various arrays for the schedule struct
+void createSchedule(header* allPacketHeaders, schedule* HEFschedule){
     //get all tasks' periods
     //compute hperiod
     int size = CLIENT_COUNT;
-    uint16_t* periods = malloc(sizeof(uint16_t) * CLIENT_COUNT);
+    unsigned short periods[CLIENT_COUNT];
     for(int i = 0; i < size; i++){
-            periods[i] = allPacketHeaders[i].period;
+        periods[i] = allPacketHeaders[i].period;
     }
+    HEFschedule->hPeriod = leastCommonMultiple(periods, CLIENT_COUNT);
+    
+    for(int i = 0; i < size; i++){
+        HEFschedule->taskEntropy[i] = calculateTaskEntropy(allPacketHeaders[i].period, HEFschedule->hPeriod, allPacketHeaders[i].size);
+        HEFschedule->normalizedTaskEntropy[i] = calculateNormalizedEntropy(HEFschedule->taskEntropy[i], allPacketHeaders[i].size);
+    }
+    //sorts in acending order
+    sortEntropy(HEFschedule->normalizedTaskEntropy, HEFschedule->taskOrder, CLIENT_COUNT, CLIENT_COUNT);
+    
+    
+    //go in reverse order becuase it is "highest entropy first"
+    //check if schedule/taskOrder is feasible
+    unsigned long currentTime = millis();
+    int j =0;
+    for(int i = size -1; i >= 0; i--){
+        header task = allPacketHeaders[HEFschedule->taskOrder[i]];
+        long deadline = checkSchedule(currentTime, task.period, task.size);
+        if(deadline != 0){
+            HEFschedule->finalOrder[j] = HEFschedule->taskOrder[i];
+            HEFschedule->deadline[j++] = deadline;
+        }
+        else{
+            //skip
+        }
+    }
+    //Should have a finalorder array -> holds index of header in allPacketHeaders array
+    //deadline holds deadline of the header at the index of final order
 }
 
-//Returns true if schedulable, false if not.
-bool checkSchedule(unsigned long startTime, unsigned long period, unsigned int compTime){
+//Returns deadline if schedulable, 0 if not.
+unsigned long checkSchedule(unsigned long startTime, unsigned short period, unsigned short compTime){
     unsigned long deadline = startTime + period;
     totalCompTime += compTime;
     
     if(totalCompTime > deadline){
-        return false;
+        totalCompTime -= compTime; //Subract off the total comp time because packet will be discarded
+        return 0;
     }
     else{
-        return true;
+        return deadline;
     }
 }
 
@@ -93,13 +136,13 @@ unsigned long getWallClockDeadline(unsigned int scheduleLength, int deadline, un
 }
 
 //Takes LOGbase2 of hperiod (lcm of all periods)  and multiplies it by the quotient of comptime/period
-double calculateTaskEntropy(int period, int hperiod, int compTime){
+double calculateTaskEntropy(unsigned short period, unsigned short hperiod, unsigned short compTime){
     double entropy = (log2(hperiod)) * ((double)compTime / (double)period);
     return entropy;
 }
 
 //divides taskEntropy by compTime
-double calculateNormalizedEntropy(double taskEntropy, int compTime){
+double calculateNormalizedEntropy(double taskEntropy, unsigned short compTime){
     double normalizedEntropy = taskEntropy / compTime;
     return normalizedEntropy;
 }
@@ -111,9 +154,9 @@ double calculateSingleTimeUnit(int hperiod){
     return result;
 }
 
-//sorts the entropy array
+//sorts the entropy array (selection sort)
 //Takes in two arrays: entropy(either normalized or not) values and which task the value is associated with
-void sortEntropy(double taskEntropy[], int taskNumbers[], int size1, int size2){
+void sortEntropy(double taskEntropy[], unsigned int taskNumbers[], int size1, int size2){
     for(int i = 0; i < size1; i++){
         
         int jMin = i;
@@ -138,10 +181,19 @@ void sortEntropy(double taskEntropy[], int taskNumbers[], int size1, int size2){
 
 //HELPER FUNCTIONS
 
-//Least Common Multiple - from https://www.geeksforgeeks.org/lcm-of-given-array-elements/
-int leastCommonMultiple(int periods[], int size){
+
+void scheduleInit(schedule* scheduleStruct){
+    scheduleStruct->hPeriod = 0;
+    scheduleStruct->startTime = 0;
     
-    int lcm = periods[0];
+    for(unsigned int i = 0; i < CLIENT_COUNT; i++){
+        scheduleStruct->taskOrder[i] = i;
+    }
+}
+//Least Common Multiple - from https://www.geeksforgeeks.org/lcm-of-given-array-elements/
+unsigned int leastCommonMultiple(unsigned short periods[], int size){
+    
+    unsigned int lcm = periods[0];
     for(int i = 1; i < size; i++){
         lcm = ((((periods[i] * lcm)) / (gcd(periods[i], lcm))));
     }
@@ -167,7 +219,7 @@ void swapDouble(double *a, double *b){
 }
 
 //swap helper function for ints
-void swapInt(int *a, int *b){
+void swapInt(unsigned int *a, unsigned int *b){
     int temp = *a;
     *a = *b;
     *b = temp;
