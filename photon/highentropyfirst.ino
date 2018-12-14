@@ -25,6 +25,7 @@ bool readFully(TCPClient c, uint8_t* buf, size_t len);
 header bytesToHeader(uint8_t* b);
 bool headersContainSource(header* headers, size_t headersLen, long source);
 header* readAllHeaders(TCPServer server);
+void sendPacket(header h, uint8_t* payload);
 
 TCPServer server = TCPServer(1337);
 
@@ -221,6 +222,16 @@ header bytesToHeader(uint8_t* b) {
     return ret;
 }
 
+// Converts a header to a byte array of 12 bytes
+uint8_t* headerToBytes(header h) {
+    uint8_t* ret = (uint8_t*) malloc(12);
+    *((long*) &ret[0]) = h.sourceIp;
+    *((long*) &ret[4]) = h.destIp;
+    *((uint16_t*) &ret[8]) = h.period;
+    *((uint16_t*) &ret[10]) = h.size;
+    return ret;
+}
+
 // Searches an array of header structs for one that contains the source IP.
 bool headersContainSource(header* headers, size_t headersLen, long source) {
     for (int i = 0; i < headersLen; i++) {
@@ -249,10 +260,39 @@ bool processPacketFromSource(TCPServer server, long source, long wallClockDeadli
             Serial.printf("Got connection from unexpected source: %s.  Closing connection.\n", IPAddress(source));
             c.stop();
         } else {
-            Serial.printf("TODO: process packet\n");
+            Serial.printf("Processing packet\n");
+            readPacket(c);
             c.stop();
             return true;
         }
     }
     return false;
+}
+
+void readPacket(TCPClient c) {
+    uint8_t headerBytes[12];
+    if (readFully(c, headerBytes, sizeof(header))) {
+        header h = bytesToHeader(headerBytes);
+        uint8_t payload[h.size];
+        if (!readFully(c, payload, h.size)) {
+            Serial.printf("Problem reading full packet payload from client\n");
+            return;
+        } else {
+            sendPacket(h, payload);
+        }
+    }
+}
+
+void sendPacket(header h, uint8_t* payload) {
+    IPAddress destinationIP = IPAddress(h.destIp);
+    TCPClient c;
+    if (!c.connect(destinationIP, 1337)) {
+        Serial.printf("Problem connecting to server.\n");
+    } else {
+        uint8_t* headerBytes = headerToBytes(h);
+        c.write(headerBytes, 12);
+        free(headerBytes);
+        c.write(payload, h.size);
+        c.stop();
+    }
 }
