@@ -33,7 +33,6 @@ bool readFully(TCPClient c, uint8_t* buf, size_t len);
 header bytesToHeader(uint8_t* b);
 bool headersContainSource(header* headers, size_t headersLen, long source);
 header* readAllHeaders(TCPServer server);
-void sendPacket(header h, uint8_t* payload);
 void scheduleInit(schedule* scheduleStruct);
 double calculateNormalizedEntropy(double taskEntropy, unsigned short compTime);
 double calculateTaskEntropy(unsigned short period, unsigned short hperiod, unsigned short compTime);
@@ -178,6 +177,26 @@ void sortEntropy(double taskEntropy[], unsigned int taskNumbers[], int size1, in
     }
 }
 
+void sortPeriod(unsigned short taskPeriod[], unsigned int taskNumbers[], int size1, int size2){
+    for(int i = 0; i < size1; i++){
+        
+        int jMin = i;
+        
+        for(int j = i+1; j < size1; j++){
+            
+            if(taskPeriod[j] < taskPeriod[jMin]){
+                jMin = j;
+            }
+        }
+        
+        if(jMin != i){
+            //Uses array+i because we need to pass reference to array rather than value
+            swapShort(taskPeriod+i, taskPeriod+jMin);
+            swapInt(taskNumbers+i, taskNumbers+jMin);
+        }
+    }
+}
+
 
 
 
@@ -222,6 +241,13 @@ void swapDouble(double *a, double *b){
 
 //swap helper function for ints
 void swapInt(unsigned int *a, unsigned int *b){
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+//swap helper function for shorts
+void swapShort(unsigned short *a, unsigned short *b){
     int temp = *a;
     *a = *b;
     *b = temp;
@@ -275,16 +301,6 @@ header bytesToHeader(uint8_t* b) {
     return ret;
 }
 
-// Converts a header to a byte array of 12 bytes
-uint8_t* headerToBytes(header h) {
-    uint8_t* ret = (uint8_t*) malloc(12);
-    *((long*) &ret[0]) = h.sourceIp;
-    *((long*) &ret[4]) = h.destIp;
-    *((uint16_t*) &ret[8]) = h.period;
-    *((uint16_t*) &ret[10]) = h.size;
-    return ret;
-}
-
 // Searches an array of header structs for one that contains the source IP.
 bool headersContainSource(header* headers, size_t headersLen, long source) {
     for (int i = 0; i < headersLen; i++) {
@@ -313,39 +329,10 @@ bool processPacketFromSource(TCPServer server, long source, long wallClockDeadli
             Serial.printf("Got connection from unexpected source: %s.  Closing connection.\n", IPAddress(source));
             c.stop();
         } else {
-            Serial.printf("Processing packet\n");
-            readPacket(c);
+            Serial.printf("TODO: process packet\n");
             c.stop();
             return true;
         }
     }
     return false;
-}
-
-void readPacket(TCPClient c) {
-    uint8_t headerBytes[12];
-    if (readFully(c, headerBytes, sizeof(header))) {
-        header h = bytesToHeader(headerBytes);
-        uint8_t payload[h.size];
-        if (!readFully(c, payload, h.size)) {
-            Serial.printf("Problem reading full packet payload from client\n");
-            return;
-        } else {
-            sendPacket(h, payload);
-        }
-    }
-}
-
-void sendPacket(header h, uint8_t* payload) {
-    IPAddress destinationIP = IPAddress(h.destIp);
-    TCPClient c;
-    if (!c.connect(destinationIP, 1337)) {
-        Serial.printf("Problem connecting to server.\n");
-    } else {
-        uint8_t* headerBytes = headerToBytes(h);
-        c.write(headerBytes, 12);
-        free(headerBytes);
-        c.write(payload, h.size);
-        c.stop();
-    }
 }
