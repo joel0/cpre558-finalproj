@@ -26,8 +26,9 @@ typedef struct {
 //Server Creation
 TCPServer server = TCPServer(1337);
 
+
 //*******************************************PROTOTYPES***************************************
-void processPacketFromSource(TCPServer server, long source, long wallClockDeadline);
+bool processPacketFromSource(TCPServer server, long source, long wallClockDeadline);
 bool readFully(TCPClient c, uint8_t* buf, size_t len);
 header bytesToHeader(uint8_t* b);
 bool headersContainSource(header* headers, size_t headersLen, long source);
@@ -239,7 +240,7 @@ header* readAllHeaders(TCPServer server) {
         if (readFully(c, headerBytes, sizeof(header))) {
             header thisHeader = bytesToHeader(headerBytes);
             if (headersContainSource(headers, clients, thisHeader.sourceIp)) {
-                Serial.printf("Encountered header from alread seen client.");
+                Serial.printf("Encountered header from alread seen client.\n");
             } else {
                 headers[clients] = thisHeader;
                 clients++;
@@ -288,7 +289,23 @@ bool headersContainSource(header* headers, size_t headersLen, long source) {
 // Times out and returns if wallClockDeadline is exceeded.
 //  server: the TCP listener
 //  source: the source IP to accept from
-//  wallClockDeadline: the time according to milis() to return if the source does not connect.
-void processPacketFromSource(TCPServer server, long source, long wallClockDeadline) {
-
+//  wallClockDeadline: the time according to millis() to return if the source does not connect.
+// Returns: true if packet was received and sent.  False if timeout.
+bool processPacketFromSource(TCPServer server, long source, long wallClockDeadline) {
+    while (millis() <= wallClockDeadline) {
+        TCPClient c = server.available();
+        if (millis() > wallClockDeadline) {
+            // Timeout
+            return false;
+        }
+        if (!(c.remoteIP() == IPAddress(source))) {
+            Serial.printf("Got connection from unexpected source: %s.  Closing connection.\n", IPAddress(source));
+            c.stop();
+        } else {
+            Serial.printf("TODO: process packet\n");
+            c.stop();
+            return true;
+        }
+    }
+    return false;
 }
